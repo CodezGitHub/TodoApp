@@ -1,29 +1,33 @@
 package com.example.sheetal.todoapp;
 
-import android.content.Intent;
 import android.os.Bundle;
+import android.support.v4.app.FragmentManager;
 import android.support.v7.app.AppCompatActivity;
+import android.util.Log;
 import android.view.View;
 import android.widget.AdapterView;
-import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ListView;
 
-import org.apache.commons.io.FileUtils;
-
-import java.io.File;
-import java.io.IOException;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity  implements EditDialogFragment.OnFragmentInteractionListener{
 
     Button btnAddItem;
     ListView lvItems;
     EditText etEditText;
-    ArrayList<String> todoItems;
-    ArrayAdapter<String> aTodoAdapter;
+    ArrayList<ListItem> listArray;
+    ListItemAdapter customAdapter;
     private final int REQUEST_CODE = 200;
+    TodoDatabaseHelper dbHelper;
+
+    Calendar cal = Calendar.getInstance();
+    SimpleDateFormat dateFormat = new SimpleDateFormat("dd MMM yyyy");
+
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -34,14 +38,20 @@ public class MainActivity extends AppCompatActivity {
         etEditText = (EditText) findViewById(R.id.etEditText);
         btnAddItem = (Button) findViewById(R.id.btnAddItem);
 
+        dbHelper = TodoDatabaseHelper.getInstance(getApplicationContext());
+        listArray = new ArrayList<ListItem>();
+        customAdapter = new ListItemAdapter(getApplicationContext(),listArray);
+
+        lvItems.setAdapter(customAdapter);
+
         populateArrayItems();
 
-        lvItems.setAdapter(aTodoAdapter);
 
         btnAddItem.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
                 addTodoItem();
+
             }
         });
 
@@ -49,9 +59,11 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public boolean onItemLongClick(AdapterView<?> adapterView, View view, int position, long l) {
 
-                todoItems.remove(position);
-                aTodoAdapter.notifyDataSetChanged();
-                writeItems();
+                listArray.remove(position);
+                customAdapter.notifyDataSetChanged();
+
+                //update database
+                dbHelper.deleteListItem(position);
 
                 return true;
             }
@@ -62,72 +74,54 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
 
-                Intent intent = new Intent(MainActivity.this,EditItemActivity.class);
-                intent.putExtra("Text", lvItems.getItemAtPosition(position).toString());
-                intent.putExtra("Position", position);
-                startActivityForResult(intent, REQUEST_CODE);
+                ListItem tempItem = (ListItem) lvItems.getItemAtPosition(position);
+
+                //call dialog fragment to edit the item
+                showEditDialog(tempItem.text.toString(), position, tempItem.dueDate);
+
+                //update databse
+                dbHelper.updateListItem(tempItem, position);
             }
         });
 
     }
 
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-
-
-        if(resultCode == RESULT_OK && requestCode == REQUEST_CODE) {
-
-            String newText = data.getStringExtra("NewText");
-            int position = data.getIntExtra("Position",0);
-
-            todoItems.set(position,newText);
-            aTodoAdapter.notifyDataSetChanged();
-            writeItems();
-        }
-
+    public void  showEditDialog(String oldText, int position, String dueDate)
+    {
+        FragmentManager fm = getSupportFragmentManager();
+        EditDialogFragment editDialogFragment = EditDialogFragment.newInstance(oldText, position, dueDate);
+        editDialogFragment.show(fm,"fragment_edit_dialog");
     }
+
 
     public void populateArrayItems()
     {
-        readItems();
-        aTodoAdapter = new ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, todoItems);
+        listArray.addAll(dbHelper.getAllListItems());
+        customAdapter.notifyDataSetChanged();
     }
 
     public void addTodoItem()
     {
-        todoItems.add(etEditText.getText().toString());
-        aTodoAdapter.notifyDataSetChanged();
+        ListItem tempItem = new ListItem(etEditText.getText().toString(), dateFormat.format(cal.getTime())); // initially pass duedate as Today's Date
+        listArray.add(tempItem);
+        customAdapter.notifyDataSetChanged();
         etEditText.setText("");
-        writeItems();
+
+        // update database
+        dbHelper.addListItem(tempItem, (lvItems.getLastVisiblePosition()+1));
+
+        Log.d("DEBUG","Add Item: "+ tempItem.text + "," + tempItem.dueDate);
     }
 
-    public void readItems()
-    {
-        File fileDir = getFilesDir();
-        File todoFile = new File(fileDir,"todo.txt");
+    @Override
+    public void onFragmentInteraction(String newText, int position, String newDueDate) {
+        ListItem item= (ListItem) lvItems.getItemAtPosition(position);
+        item.text = newText;
+        item.dueDate = newDueDate;
+        customAdapter.notifyDataSetChanged();
 
-        try {
+        //update db
+        dbHelper.updateListItem(item,position);
 
-            todoItems = new ArrayList<String>(FileUtils.readLines(todoFile));
-        }catch (IOException e)
-        {
-            todoItems = new ArrayList<String>();
-            e.printStackTrace();
-        }
     }
-
-    public void writeItems()
-    {
-        File fileDir = getFilesDir();
-        File todoFile = new File(fileDir,"todo.txt");
-
-        try {
-            FileUtils.writeLines(todoFile, todoItems);
-        }
-        catch (IOException e)
-        {
-            e.printStackTrace();
-        }
-    }
-
 }
